@@ -1,17 +1,12 @@
-#!/bin/python
-
-"""Use the game and league API
-Usage:
-  league.py <json>
-  <json>  The name of the JSON that has bearer token.  This can be generated
-          from init_oauth_env.py.
-"""
 from docopt import docopt
 from yahoo_oauth import OAuth2
 from yahoo_fantasy_api import league, game, team, yhandler
 from pprint import pformat
 import json
 import time
+
+# TODO: Add help text to mind me to use the auth.py script before trying to use this script. Right now this script
+#  will fail if I attempt to run it without first creating an oauth2 key using auth.py.
 
 
 def test_fun():
@@ -382,12 +377,20 @@ def parse_transaction_data():
     """ Go through all the transactions and get the relevant data.
 
     transaction_data dictionary structure:
-    { Transaction Key: { Type: 'add', 'drop', 'trade',
-                         Destination: 'team key', 'waiver', 'FA'
-                         Source Type: 'waiver', 'team', 'FA'
-                         Player Key: 'PK'
-                         time: 'time stamp'
-                         }}
+    { Transaction Key: { Player 1: { Type: 'add', 'drop', 'trade',
+                                     Destination: 'team key', 'waiver', 'FA'
+                                     Source Type: 'waiver', 'team', 'FA'
+                                     }
+                        }
+                       { Player 2: { Type: 'add', 'drop', 'trade',
+                                     Destination: 'team key', 'waiver', 'FA'
+                                     Source Type: 'waiver', 'team', 'FA'
+                                     }
+                        }
+
+                       {timestamp: 'time stamp'}
+                        }
+    }
 
     Returns:
         transaction_data (dict): Dictionary of transaction data
@@ -428,19 +431,52 @@ def parse_transaction_data():
 
         # The players in a transaction is stored as a dictionary. That dictionary looks like this:
         # {'players': {'0': {'player': [[{'player_key': '380.p.30994'},
-        # This means we need to loop through all the players in the tranasction to get the player key and status
+        # This means we need to loop through all the players in the transaction to get the player key and status
         # for each transaction
 
-        players = transactions[transaction]['transaction'][1]['players']
-
-        print('{}'.format(pformat(transactions[transaction]['transaction'][1]['players'])))
-        # print('{}'.format(pformat(transactions[transaction]['transaction'][0]['transaction_key'])))
-        # print('{}'.format(pformat(timestamp)))
-
+        # Set high level dictionary before we insert the player dictionary for each transaction
         transaction_data[transaction_key] = dict()
         transaction_data[transaction_key]['timestamp'] = timestamp
 
-    # print(transaction_data)
+        players = transactions[transaction]['transaction'][1]['players']
+
+        for player in players:
+            if player == 'count':
+                continue
+            print('Player: {}'.format(player))
+            # print(players[player])
+
+            # print('{}'.format(pformat(players[player]['player'][0])))
+            # print('{}'.format(pformat(players[player]['player'][1])))
+
+            player_key = players[player]['player'][0][0]['player_key']
+            # print('{}'.format(pformat(player_key)))
+
+            print('{}'.format(pformat(players[player]['player'][1])))
+
+            transaction_data_from_json = players[player]['player'][1]['transaction_data']
+
+            print('{}'.format(pformat(transaction_data_from_json)))
+            print('Type: {}'.format(type(transaction_data_from_json)))
+
+            # TODO (9/13/19): The transaction data for an add is a list and a drop is a dict(). Need to do a type check
+            #  and then access the data appropriately. When we get to the timestamp we should probably  convert it
+            #  to something nicer than UNIX time, since a huge int is hard to read. Remember that JSON must be a str
+            #  so if I am going to save the timestamp as a json, I will need to convert the datetime object back to
+            #  a string. The timestamp will be used to determine if a player added off of Waivers was added long after
+            #  that player was dropped, which would make that player ineligible to be kept.
+            #  Use the new structure for transaction_data, which is defined in the docstring for this function.
+
+
+            transaction_data[transaction_key][player_key] = dict()
+
+        # print('{}'.format(pformat(transactions[transaction]['transaction'][1]['players'])))
+        # print('{}'.format(pformat(transactions[transaction]['transaction'][0]['transaction_key'])))
+        # print('{}'.format(pformat(timestamp)))
+
+
+
+    # print('{}'.format(pformat(transaction_data)))
 
 
     # return transaction_data
