@@ -397,7 +397,6 @@ def parse_transaction_data():
 
     """
     sc = OAuth2(None, None, from_file='oauth2.json')
-    # url = 'https://fantasysports.yahooapis.com/fantasy/v2/league/390.l.414010/transactions'
     url = 'https://fantasysports.yahooapis.com/fantasy/v2/league/380.l.841493/transactions'
     response = sc.session.get(url, params={'format': 'json'})
     r = response.json()
@@ -454,9 +453,11 @@ def parse_transaction_data():
 
             print('{}'.format(pformat(players[player]['player'][1])))
 
+            transaction_data[transaction_key][player_key] = dict()
+
             transaction_data_from_json = players[player]['player'][1]['transaction_data']
 
-            print('{}'.format(pformat(transaction_data_from_json)))
+            # print('{}'.format(pformat(transaction_data_from_json)))
             print('Type: {}'.format(type(transaction_data_from_json)))
 
             # TODO (9/13/19): The transaction data for an add is a list and a drop is a dict(). Need to do a type check
@@ -467,8 +468,35 @@ def parse_transaction_data():
             #  that player was dropped, which would make that player ineligible to be kept.
             #  Use the new structure for transaction_data, which is defined in the docstring for this function.
 
+            if type(transaction_data_from_json) is list:
+                print('{}'.format(pformat(transaction_data_from_json)))
+                print('{}'.format(pformat(transaction_data_from_json[0])))
+                destination_team = transaction_data_from_json[0]['destination_team_key']
+                transaction_type = transaction_data_from_json[0]['type']
+                source_type = transaction_data_from_json[0]['source_type']
+                print('{}'.format(pformat(destination_team)))
+                print('{}'.format(pformat(transaction_type)))
+                print('{}'.format(pformat(source_type)))
 
-            transaction_data[transaction_key][player_key] = dict()
+                transaction_data[transaction_key][player_key]['type'] = transaction_type
+                transaction_data[transaction_key][player_key]['source'] = source_type
+                transaction_data[transaction_key][player_key]['destination'] = destination_team
+
+            elif type(transaction_data_from_json) is dict:
+                print('{}'.format(pformat(transaction_data_from_json)))
+                destination_type = transaction_data_from_json['destination_type']
+                transaction_type = transaction_data_from_json['type']
+                source_type = transaction_data_from_json['source_type']
+                print('{}'.format(pformat(destination_type)))
+                print('{}'.format(pformat(transaction_type)))
+                print('{}'.format(pformat(source_type)))
+
+                transaction_data[transaction_key][player_key]['type'] = transaction_type
+                transaction_data[transaction_key][player_key]['source'] = source_type
+                transaction_data[transaction_key][player_key]['destination'] = destination_type
+
+
+
 
         # print('{}'.format(pformat(transactions[transaction]['transaction'][1]['players'])))
         # print('{}'.format(pformat(transactions[transaction]['transaction'][0]['transaction_key'])))
@@ -476,7 +504,7 @@ def parse_transaction_data():
 
 
 
-    # print('{}'.format(pformat(transaction_data)))
+    print('{}'.format(pformat(transaction_data)))
 
 
     # return transaction_data
