@@ -469,6 +469,8 @@ def parse_transaction_data():
             #  Use the new structure for transaction_data, which is defined in the docstring for this function.
 
             if type(transaction_data_from_json) is list:
+                # TODO: Need to convert this to a list and not just hard coded with 0. Hard coding this to 0 means I
+                #  might miss a player who was part of a transaction.
                 print('{}'.format(pformat(transaction_data_from_json)))
                 print('{}'.format(pformat(transaction_data_from_json[0])))
                 destination_team = transaction_data_from_json[0]['destination_team_key']
