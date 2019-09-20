@@ -4,7 +4,7 @@ from yahoo_fantasy_api import league, game, team, yhandler
 from pprint import pformat
 import json
 import time
-
+from datetime import datetime
 # TODO: Add help text to mind me to use the auth.py script before trying to use this script. Right now this script
 #  will fail if I attempt to run it without first creating an oauth2 key using auth.py.
 
@@ -388,7 +388,7 @@ def parse_transaction_data():
                                      }
                         }
 
-                       {timestamp: 'time stamp'}
+                       {timestamp: 'timestamp stored as a datetime object in the dictionary.'}
                         }
     }
 
@@ -428,113 +428,206 @@ def parse_transaction_data():
         transaction_key = transactions[transaction]['transaction'][0]['transaction_key']
         timestamp = transactions[transaction]['transaction'][0]['timestamp']
 
+        # Timestamp in the JSON is UNIX time. Convert this to a UTC datetime object.
+        # This will need to be converted back to a str using
+        # datetime.utcfromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')), if we want to store this as a json anywhere.
+        utc_timestamp = datetime.utcfromtimestamp(int(timestamp))
+
+        utc_timestamp_str = utc_timestamp.strftime('%Y-%m-%d %H:%M:%S')
+
+        # Set high level dictionary before we insert the player dictionary for each transaction
+        transaction_data[transaction_key] = dict()
+        # transaction_data[transaction_key]['timestamp'] = utc_timestamp
+        transaction_data[transaction_key]['timestamp'] = utc_timestamp_str
+
+        players = transactions[transaction]['transaction'][1]['players']
+
         # The players in a transaction is stored as a dictionary. That dictionary looks like this:
         # {'players': {'0': {'player': [[{'player_key': '380.p.30994'},
         # This means we need to loop through all the players in the transaction to get the player key and status
         # for each transaction
-
-        # Set high level dictionary before we insert the player dictionary for each transaction
-        transaction_data[transaction_key] = dict()
-        transaction_data[transaction_key]['timestamp'] = timestamp
-
-        players = transactions[transaction]['transaction'][1]['players']
-
         for player in players:
             if player == 'count':
                 continue
             print('Player: {}'.format(player))
-            # print(players[player])
-
-            # print('{}'.format(pformat(players[player]['player'][0])))
-            # print('{}'.format(pformat(players[player]['player'][1])))
 
             player_key = players[player]['player'][0][0]['player_key']
-            # print('{}'.format(pformat(player_key)))
-
-            print('{}'.format(pformat(players[player]['player'][1])))
 
             transaction_data[transaction_key][player_key] = dict()
-
             transaction_data_from_json = players[player]['player'][1]['transaction_data']
 
-            # print('{}'.format(pformat(transaction_data_from_json)))
-            print('Type: {}'.format(type(transaction_data_from_json)))
-
-            # TODO (9/13/19): The transaction data for an add is a list and a drop is a dict(). Need to do a type check
-            #  and then access the data appropriately. When we get to the timestamp we should probably  convert it
-            #  to something nicer than UNIX time, since a huge int is hard to read. Remember that JSON must be a str
-            #  so if I am going to save the timestamp as a json, I will need to convert the datetime object back to
-            #  a string. The timestamp will be used to determine if a player added off of Waivers was added long after
-            #  that player was dropped, which would make that player ineligible to be kept.
-            #  Use the new structure for transaction_data, which is defined in the docstring for this function.
-
+            # The transaction data can either be a list or a dict. If it is a list, we need to iterate through the list
+            # to make sure we get every player that is part of the transaction. If the transaction is a dict, then
+            # we can access the information directly.
             if type(transaction_data_from_json) is list:
-                # TODO: Need to convert this to a list and not just hard coded with 0. Hard coding this to 0 means I
-                #  might miss a player who was part of a transaction.
-                print('{}'.format(pformat(transaction_data_from_json)))
-                print('{}'.format(pformat(transaction_data_from_json[0])))
-                destination_team = transaction_data_from_json[0]['destination_team_key']
-                transaction_type = transaction_data_from_json[0]['type']
-                source_type = transaction_data_from_json[0]['source_type']
-                print('{}'.format(pformat(destination_team)))
-                print('{}'.format(pformat(transaction_type)))
-                print('{}'.format(pformat(source_type)))
+                # For reasons that I can not figure out, the 'add' of a waiver claim transaction is a list while the
+                # drop is a dictionary. From the years worth of transaction data in our league, I can never see a
+                # situation where this list has more than 1 element in it. However, since it is a list it is
+                # technically possible.
+                for list_transaction in transaction_data_from_json:
+                    if list_transaction == 'count':
+                        continue
 
-                transaction_data[transaction_key][player_key]['type'] = transaction_type
-                transaction_data[transaction_key][player_key]['source'] = source_type
-                transaction_data[transaction_key][player_key]['destination'] = destination_team
+                    destination_team = list_transaction['destination_team_key']
+                    transaction_type = list_transaction['type']
+                    source_type = list_transaction['source_type']
+
+                    transaction_data[transaction_key][player_key]['type'] = transaction_type
+                    transaction_data[transaction_key][player_key]['source'] = source_type
+                    transaction_data[transaction_key][player_key]['destination'] = destination_team
 
             elif type(transaction_data_from_json) is dict:
-                print('{}'.format(pformat(transaction_data_from_json)))
                 destination_type = transaction_data_from_json['destination_type']
                 transaction_type = transaction_data_from_json['type']
                 source_type = transaction_data_from_json['source_type']
-                print('{}'.format(pformat(destination_type)))
-                print('{}'.format(pformat(transaction_type)))
-                print('{}'.format(pformat(source_type)))
 
                 transaction_data[transaction_key][player_key]['type'] = transaction_type
                 transaction_data[transaction_key][player_key]['source'] = source_type
                 transaction_data[transaction_key][player_key]['destination'] = destination_type
 
-
-
-
-        # print('{}'.format(pformat(transactions[transaction]['transaction'][1]['players'])))
-        # print('{}'.format(pformat(transactions[transaction]['transaction'][0]['transaction_key'])))
-        # print('{}'.format(pformat(timestamp)))
-
-
-
     print('{}'.format(pformat(transaction_data)))
 
-
-    # return transaction_data
-
+    return transaction_data
 
 
+def check_if_dropped(player_dict, transaction_dict):
+    """ Get the eligible keepers
+
+    Go through the dictionary of drafted players that were rostered week 15. If they are not eligible to be kept remove them
+    from the dictionary.
+
+    Args:
+        player_dict (dict): Dictionary of players there were rostered in week 15 and drafted
+        transaction_dict (dict): Dictionary of parsed transaction data.
+
+    Returns:
+        final_keeper_dict (dict): The final dictionary of players that are eligible to be kept.
+    """
+
+    dropped_players = dict()
+    free_agent_players = dict()
+
+    for team in list(player_dict):
+        # For every player that was drafted and is on a roster at the end of the season
+        for player in list(player_dict[team]):
+            print('Player: {}'.format(pformat(player)))
+            player_key = player_dict[team][player]['key']
+
+            print('Player Key = {}'.format(player_key))
+
+            # Look through all the transactions. If the player is in the transaction, then check what type of
+            # transaction. If the player was added off of freeagents, they are not eligible to be kept. Remove them
+            # from the player_dict. If the player was dropped, add them to a dropped player list.
+            for transaction in transaction_dict:
+                # If the player is in the transaction data, check how that player was added.
+                if player_key in transaction_dict[transaction]:
+                    # If the player was added off of free agents, that player is not eligible to be kept. Add them to
+                    # a free_agent_player dictionary.
+                    if transaction_dict[transaction][player_key]['type'] == 'add' and\
+                            transaction_dict[transaction][player_key]['source'] == 'freeagents':
+                        print('Transaction ID: {}'.format(transaction))
+                        print('{} {} was added off of freeagents. Remove from keeper list'.format(player, player_key))
+                        free_agent_players[player_key] = player
+
+                        print('{}'.format(pformat(player_dict[team])))
+                        print('{}'.format(pformat(team)))
+
+
+
+                    # If the player was dropped, add that player to the dropped_players dictionary.
+                    if transaction_dict[transaction][player_key]['type'] == 'drop':
+                        print('transaction: {}'.format(transaction))
+                        print('{} {} was added off of freeagents. Remove from keeper list'.format(player, player_key))
+                        dropped_players[player_key] = player
+
+    print('{}'.format(pformat(player_dict)))
+
+    print(dropped_players)
+    print(len(dropped_players))
+    print(free_agent_players)
+    print(len(free_agent_players))
+
+    # Loop through the dropped_players dictionary. If a player is also in the free_agent dictionary, then that player
+    # is not eligible. Remove them from the dropped_player list.
+    for player in list(dropped_players):
+        if player in list(free_agent_players):
+            del(dropped_players[player])
+            # print('{} is not in both lists'.format(dropped_players[player]))
+
+    print(dropped_players)
+    print(len(dropped_players))
+
+    # For every dropped player left, go through the transaction data to get the drop time.
+    for player_key in dropped_players:
+        player = dropped_players[player_key]
+        print(player_key)
+        # Initialize lists of times a player was dropped and added.
+        list_drop_times = []
+        list_add_times = []
+        for transaction in transaction_dict:
+            # print(transaction)
+            if player_key in transaction_dict[transaction]:
+                if transaction_dict[transaction][player_key]['type'] == 'drop':
+                    # print('Drop time for {} is {}'.format(player, transaction_dict[transaction]['timestamp']))
+                    timestamp = datetime.strptime(transaction_dict[transaction]['timestamp'], '%Y-%m-%d %H:%M:%S')
+                    list_drop_times.append(timestamp)
+                if transaction_dict[transaction][player_key]['type'] == 'add':
+                    # print('Add time for {} is {}'.format(player, transaction_dict[transaction]['timestamp']))
+                    timestamp = datetime.strptime(transaction_dict[transaction]['timestamp'], '%Y-%m-%d %H:%M:%S')
+                    list_add_times.append(timestamp)
+
+        sorted_drop_times = sorted(list_drop_times)
+        sorted_add_times = sorted(list_add_times)
+
+        print('Drop times for player {}: {}, count {}'.format(player, sorted_drop_times, len(sorted_drop_times)))
+        print('Add times for player {}: {}, count {}'.format(player, sorted_add_times, len(sorted_add_times)))
+
+        # Go through the list of drop times. If the difference between the add time and drop time is greater than
+        # 3 days, then that player was not picked up off of waivers. Remove them from keeper list.
+        for drop_time in sorted_drop_times:
+            for add_time in sorted_add_times:
+                difference = add_time-drop_time
+                print('Time between drops and adds: {}'.format(difference))
+                if difference.days >= 3:
+                    print('Difference is greater than 3 days. Remove it from the keeper list')
+                    for team in player_dict:
+                        if player in player_dict[team]:
+                            del (player_dict[team][player])
+
+    print('Keeper list: {}'.format(pformat(player_dict)))
 
 if __name__ == '__main__':
     # args = docopt(__doc__, version='1.0')
     # print(args)
     # test_fun()
 
-    # response_get()
+    drafted_players = get_draft_results()
 
-    # get_transactions()
+    team_names = get_team_names()
 
-    # drafted_players = get_draft_results()
+    rostered_players = get_all_rosters(team_names)
 
-    # team_names = get_team_names()
-
-    # rostered_players = get_all_rosters(team_names)
-
-    # drafted_rostered_players = determine_drafted_players(drafted_players, rostered_players)
+    drafted_rostered_players = determine_drafted_players(drafted_players, rostered_players)
 
     # print('{}'.format(pformat(drafted_players)))
     # print('{}'.format(pformat(drafted_rostered_players)))
 
-    parse_transaction_data()
+    transaction_data = parse_transaction_data()
+
+    # print('{}'.format(pformat(drafted_rostered_players)))
+    # with open('dump_drafted_rosters.json', "w") as f:
+    #     f.write(json.dumps(drafted_rostered_players))
+    # print('{}'.format(pformat(transaction_data)))
+    # with open('dump_transaction.json', "w") as f:
+    #     f.write(json.dumps(transaction_data))
+
+    # # Make this quicker for now by loading from file. This is a place to optimize later.
+    # with open('dump_drafted_rosters.json') as f:
+    #     drafted_rostered_players = json.load(f)
+    # with open('dump_transaction.json') as f:
+    #     transaction_data = json.load(f)
+
+    check_if_dropped(drafted_rostered_players, transaction_data)
 
     # get_player_data()
 
