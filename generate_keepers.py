@@ -539,8 +539,9 @@ if __name__ == '__main__':
         
         For first time use, you must authenticate with Yahoo using 'python auth.py'
         
-        You must specify a year with --year
-        To read all data from files, use --file'''
+        You must specify a year with '--year'
+        To read all data from files, use the optional argument '--file'
+        To use the old keeper rules, use the optional argument '--rules' '''
     )
     parser = argparse.ArgumentParser(description=main_help_text, formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('--year', required=True, type=int, help='Year to generate keeper list')
