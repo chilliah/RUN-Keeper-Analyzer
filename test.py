@@ -8,6 +8,8 @@ from datetime import datetime
 # TODO: Add help text to mind me to use the auth.py script before trying to use this script. Right now this script
 #  will fail if I attempt to run it without first creating an oauth2 key using auth.py.
 
+# This is here to keep test functions that were deleted in file version
+
 
 def test_fun():
     sc = OAuth2(None, None, from_file='oauth2.json')
