@@ -2,6 +2,7 @@ import argparse
 import json
 import math
 import time
+import sys
 from datetime import datetime
 from pprint import pformat
 from textwrap import dedent
@@ -53,12 +54,12 @@ def get_draft_results(run_api):
     response = sc.session.get(url, params={'format': 'json'})
     r = response.json()
 
-    with open('data_files/draft.json', 'w') as f:
+    with open('data_files/raw/draft.json', 'w') as f:
         f.write(json.dumps(r))
 
     print('{}'.format(pformat(r)))
 
-    with open('data_files/draft.json') as f:
+    with open('data_files/raw/draft.json') as f:
         data = json.load(f)
 
     drafted_players = dict()
@@ -96,13 +97,13 @@ def get_team_names(run_api):
     response = sc.session.get(url, params={'format': 'json'})
     r = response.json()
 
-    with open('data_files/teams.json', 'w') as f:
+    with open('data_files/raw/teams.json', 'w') as f:
         # r = r.replace("\'", "\"")
         f.write(json.dumps(r))
 
     print('{}'.format(pformat(r)))
 
-    with open('data_files/teams.json') as f:
+    with open('data_files/raw/teams.json') as f:
         data = json.load(f)
 
     # print('{}'.format(pfromat(data['fantasy_content']['league']['draft_results'][0])))
@@ -138,7 +139,7 @@ def get_all_rosters(team_names):
     player_key, the draft cost, and the draft team into the player_names dictionary
 
     player_names dictionary has the following structure:
-    {Manager Name: { Player Name: {Player Key: Key, draft cost: cost, draft team: team key}}}
+    {Manager Name: { Player Name: {Player Key: Key, draft cost: cost, draft team: team key, position: position}}}
 
     Args:
         team_names (dict): Dictionary of a Team Key and manager name.
@@ -161,33 +162,188 @@ def get_all_rosters(team_names):
         r = response.json()
 
         # Write the data to the rosters.json in case we need it in the future.
-        with open('data_files/rosters.json', 'w') as f:
+        with open('data_files/raw/rosters.json', 'w') as f:
             f.write(json.dumps(r))
 
-        with open('data_files/rosters.json') as f:
+        with open('data_files/raw/rosters.json') as f:
             data = json.load(f)
 
         player_names[team_names[team]] = dict()
 
         # The player data for a team roster is stored as a list of dictionaries in the Yahoo API. We need to loop list
-        # and get each dictionary so we can get the player name and key of each player rostered.
-        for key, value_dict in data['fantasy_content']['team'][1]['roster']['0']['players'].items():
-            if key == 'count':
+        # and get each dictionary so we can get the player name, player key, and position of each player rostered.
+        for player_data_key, players_data_list in data['fantasy_content']['team'][1]['roster']['0']['players'].items():
+            if player_data_key == 'count':
                 continue
-            print('Key {}: Player Key: {} Player Name: {}'.format(key, value_dict['player'][0][0]['player_key'],
-                                                                  value_dict['player'][0][2]['name']['full']))
+            print('Key {}: Player Key: {} Player Name: {}'.format(player_data_key, players_data_list['player'][0][0]['player_key'],
+                                                                  players_data_list['player'][0][2]['name']['full']))
 
-            player_key = value_dict['player'][0][0]['player_key']
-            player_name = value_dict['player'][0][2]['name']['full']
+            player_data_list = players_data_list['player'][0]
+
+            for player_data in player_data_list:
+                if type(player_data) == dict:
+                    for key in player_data.keys():
+                        if key == 'player_key':
+                            player_key = player_data['player_key']
+                        if key == 'name':
+                            player_name = player_data['name']['full']
+                        if key == 'primary_position':
+                            position = player_data['primary_position']
 
             player_names[manager_name][player_name] = dict()
             player_names[manager_name][player_name]['key'] = player_key
+            player_names[manager_name][player_name]['position'] = position
 
         time.sleep(1)
 
     print('{}'.format(pformat(player_names)))
 
     return player_names
+
+
+def get_player_position(drafted_dict):
+    """ For every drafted player, get the position they play via the Yahoo API
+
+    Args:
+        drafted_dict (dict): Dictionary of draft results
+
+    Returns:
+        drafted_dict (dict): Dictionary of draft results with player position added
+
+    """
+    sc = OAuth2(None, None, from_file='oauth2.json')
+
+    # Use a list so that we can make a player collection call instead of calling the Yahoo API for each individual
+    # player, which takes forever.
+    player_key_list = list()
+    # Loop through all the drafter players so we can get their position
+    for player_key in drafted_dict:
+        player_key_list.append(player_key)
+
+        # Once we have 20 players, make a call to the API. Since RUN is 12 people with 15 man rosters we will have a 
+        # total of 180 players drafted. If we ever change the roster size, this will need to change. This would need
+        # to change because we could get into a situation where we never hit the 20 player list size for the last few
+        # players and then never get their information from the API.
+        if len(player_key_list) == 20:
+            # The API call to get a players collection is /players/player_keys=player_key1,player_key2, etc...
+            # Join the players list in the way the API expects the call, which is key1,key2,key3
+            printable_key_list = ','.join(player_key_list)
+            url = ('https://fantasysports.yahooapis.com/fantasy/v2/players;player_keys={}'.format(printable_key_list))
+            response = sc.session.get(url, params={'format': 'json'})
+            r = response.json()
+
+            print('{}'.format(pformat(r)))
+
+            with open('data_files/raw/player.json', 'w') as f:
+                # r = r.replace("\'", "\"")
+                f.write(json.dumps(r))
+
+            print('{}'.format(pformat(r)))
+
+            with open('data_files/raw/player.json') as f:
+                data = json.load(f)
+
+            # Debug
+            # with open('pretty_player.json', 'w') as f:
+            #     f.write('{}'.format(pformat(data)))
+
+            # Get the count of players returned.
+            count = int(data['fantasy_content']['players']['count'])
+
+            i = 0
+
+            # Because the glorious Yahoo API can't do anything in a why that makes sense to a normal person, this
+            # is a stupid and over complicated loop. First off in a player collection the list of players is actually
+            # stored as a dictionary, not a list. This means that to access each element like it's a dictionary, not
+            # like it's a list. For example the first player in the player collection is not player_collection[0],
+            # you know how a normal person accesses a list. Instead it's player_collection['0'], yes that's right
+            # it's a string. This is why we have to use a while loop and convert the iterator in the loop to a string.
+            while i < count:
+                players_data_list = data['fantasy_content']['players'][str(i)]['player'][0]
+                # Here's the other oddity of the Yahoo API player collection. For each player in the collection there
+                # is a list of attributes. Each individual attribute is a dictionary. It would make more sense to have
+                # this as just a dictionary. If that was the case, then we could access each element of the dictionary
+                # like it was a dictionary. However, since this is a list of dictionaries. We need to iterate through
+                # the list, check if the element is a dict (cause some elements of the list are not dictionaries), then
+                # check if the key is player_key and eligible_positions.
+                for player_data in players_data_list:
+                    if type(player_data) == dict:
+                        for key in player_data.keys():
+                            if key == 'player_key':
+                                player_player_key = player_data['player_key']
+                            if key == 'eligible_positions':
+                                for position in player_data[key]:
+                                    eligible_position = position['position']
+                                    print('Eligible positions: {}'.format(pformat(eligible_position)))
+                                    drafted_dict[player_player_key]['position'] = eligible_position
+                i = i + 1
+
+            player_key_list.clear()
+            time.sleep(1)
+
+    print('{}'.format(pformat(drafted_dict)))
+
+    return drafted_dict
+
+
+def calculate_draft_average(drafted_players):
+    """ Calculate the draft average for each position. Round up.
+
+    Args:
+        drafted_players (dict): Dictionary of drafted players
+
+    Returns:
+        draft_averages (dict): Dictionary of the average draft cost for each position
+    """
+
+    def average_ceil(position_list):
+        """ Calculate the average of the items in position_list. Round up.
+
+        Args:
+            position_list (list): List of cost for draft position
+
+        Returns: Average of items in position_list rounded up
+        """
+        return math.ceil(sum(position_list) / len(position_list))
+
+    rb_cost_list = list()
+    wr_cost_list = list()
+    qb_cost_list = list()
+    te_cost_list = list()
+    def_cost_list = list()
+
+    for player_key in drafted_players:
+        position = drafted_players[player_key]['position']
+        draft_cost = int(drafted_players[player_key]['draft cost'])
+
+        if position == 'RB':
+            rb_cost_list.append(draft_cost)
+        elif position == 'WR':
+            wr_cost_list.append(draft_cost)
+        elif position == 'QB':
+            qb_cost_list.append(draft_cost)
+        elif position == 'TE':
+            te_cost_list.append(draft_cost)
+        elif position == 'DEF':
+            def_cost_list.append(draft_cost)
+
+    rb_average = average_ceil(rb_cost_list)
+    wr_average = average_ceil(wr_cost_list)
+    qb_average = average_ceil(qb_cost_list)
+    te_average = average_ceil(te_cost_list)
+    def_average = average_ceil(def_cost_list)
+
+    print('RB cost list: {}. Average: {}'.format(rb_cost_list, rb_average))
+    print('WR cost list: {}. Average: {}'.format(wr_cost_list, wr_average))
+    print('QB cost list: {}. Average: {}'.format(qb_cost_list, qb_average))
+    print('TE cost list: {}. Average: {}'.format(te_cost_list, te_average))
+    print('DEF cost list: {}. Average: {}'.format(def_cost_list, def_average))
+
+    draft_averages = {'RB': rb_average, 'WR': wr_average, 'QB': qb_average, 'TE': te_average, 'DEF': def_average}
+
+    print('Draft Averages: {}'.format(pformat(draft_averages)))
+
+    return draft_averages
 
 
 def determine_drafted_players(drafted_dict, rostered_dict):
@@ -258,13 +414,13 @@ def parse_transaction_data():
 
     print('{}'.format(pformat(r)))
 
-    with open('data_files/transactions.json', 'w') as f:
+    with open('data_files/raw/transactions.json', 'w') as f:
         # r = r.replace("\'", "\"")
         f.write(json.dumps(r))
 
     print('{}'.format(pformat(r)))
 
-    with open('data_files/transactions.json') as f:
+    with open('data_files/raw/transactions.json') as f:
         data = json.load(f)
 
     transactions = data['fantasy_content']['league'][1]['transactions']
@@ -450,7 +606,7 @@ def old_eligible_keepers(player_dict, transaction_dict):
     print('Keeper list: {}'.format(pformat(player_dict)))
 
 
-def new_eligible_keepers(drafted_dict, rostered_dict, transaction_dict):
+def new_eligible_keepers(drafted_dict, rostered_dict, transaction_dict, draft_cost_dict):
     """ Get a list of the eligible keepers using the MKGA rules purposed in 2019
 
     Loop through all the rostered players. Check if a transaction happened involving that player after the trade
@@ -461,8 +617,10 @@ def new_eligible_keepers(drafted_dict, rostered_dict, transaction_dict):
         drafted_dict (dict): Dictionary of drafted players
         rostered_dict (dict): Dictionary of rostered players as of week 15
         transaction_dict (dict): Dictionary of all the transactions
+        draft_cost_dict (dict): Dictionary of the average draft cost for each position
 
     Returns:
+        rostered_dict (dict): Dictionary of rostered players with keeper cost
     """
     # Create UTC trade deadline, cause we are using UTC in our timestamps
     est = pytz.timezone('US/Eastern')
@@ -480,7 +638,7 @@ def new_eligible_keepers(drafted_dict, rostered_dict, transaction_dict):
             # Look through all the transactions. If the player is in the transaction data, check if the transaction
             # took place after the trade deadline. If so, then remove the player from the keeper list. Per the new
             # keeper rules, only players added before the trade deadline are eligible to be kept.
-            for transaction in transaction_data:
+            for transaction in transaction_dict:
                 if player_key in transaction_dict[transaction]:
 
                     # Convert timestamp to UTC. Need to do this because you can't compare a naive timestamp with an
@@ -514,6 +672,7 @@ def new_eligible_keepers(drafted_dict, rostered_dict, transaction_dict):
     # Determine final keeper value
     for team in rostered_dict:
         for player in rostered_dict[team]:
+            # If the player was drafte, use the drafted price as the keeper base price.
             if rostered_dict[team][player]['drafted']:
                 base_price = int(rostered_dict[team][player]['base price'])
                 keeper_cost = (base_price + 5)*1.10
@@ -521,8 +680,11 @@ def new_eligible_keepers(drafted_dict, rostered_dict, transaction_dict):
 
                 if player in rostered_dict[team]:
                     rostered_dict[team][player]["keeper price"] = keeper_cost
+            # If the player was not drafted, use the average draft price for the players position
             else:
-                keeper_cost = 'Market value'
+                position = rostered_dict[team][player]['position']
+                draft_average_cost = draft_cost_dict[position]
+                keeper_cost = draft_average_cost
                 rostered_dict[team][player]["keeper price"] = keeper_cost
 
     print('{}'.format(pformat(rostered_dict)))
@@ -530,37 +692,51 @@ def new_eligible_keepers(drafted_dict, rostered_dict, transaction_dict):
     with open('final_keepers.json', 'w') as f:
         f.write('{}'.format(pformat(rostered_dict)))
 
-    return
+    return rostered_dict
 
 
-if __name__ == '__main__':
-    main_help_text = dedent(
-        ''' Generates a list of eligible keepers for the R.U.N. League.
-        
-        For first time use, you must authenticate with Yahoo using 'python auth.py'
-        
-        You must specify a year with '--year'
-        To read all data from files, use the optional argument '--file'
-        To use the old keeper rules, use the optional argument '--rules' '''
-    )
-    parser = argparse.ArgumentParser(description=main_help_text, formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument('--year', required=True, type=int, help='Year to generate keeper list')
-    parser.add_argument('--file',
-                        type=str,
-                        default='True',
-                        help='If False, use local files instead of connecting to Yahoo API'
-                        )
-    parser.add_argument('--rules', type=str, default='new', help='If old, use old keeper rules.')
+def pretty_print_keepers(year, keeper_dict):
+    """ Print the final keeper information to a file in a human-readible format
 
-    args = parser.parse_args()
-    year = args.year
-    file = args.file
-    rules = args.rules
+    Args:
+        year (int): Year of RUN league
+        keeper_dict (dict): Dictionary of final keeper information
+    """
+    with open('final_keepers.txt', 'w') as f:
+        print('The R.U.N. League Keepers for {}\n'.format(year))
+        f.write('The R.U.N. League Keepers for {}\n'.format(year))
+        for team in keeper_dict:
+            print('Manager: {}\n'.format(team))
+            f.write('Manager: {}\n'.format(team))
 
+            for player in keeper_dict[team]:
+                keeper_cost = keeper_dict[team][player]['keeper price']
+                drafted_flag = keeper_dict[team][player]['drafted']
+                if drafted_flag:
+                    print('\t{} - Keeper Cost: ${}\n'.format(player, keeper_cost))
+                    f.write('\t{} - Keeper Cost: ${}\n'.format(player, keeper_cost))
+                else:
+                    print('\t{} - Keeper Cost: ${} **Waiver Keeper**\n'.format(player, keeper_cost))
+                    f.write('\t{} - Keeper Cost: ${}  **Waiver Keeper**\n'.format(player, keeper_cost))
+
+
+def main_program(year, file, rules, cost):
+    """ Main function for program
+
+    Args:
+        year: Year of the results to get
+        file: Use files flag
+        rules: Use new or old rules flag
+        cost: Only print cost flag
+    """
     use_old_keeper_rules = False
     if rules.lower() == 'old'.lower():
         use_old_keeper_rules = True
         print(use_old_keeper_rules)
+
+    only_print_draft_costs = False
+    if cost.lower() == 'true'.lower():
+        only_print_draft_costs = True
 
     if file.lower() == 'False'.lower():
         # Get the API Key for the specified year of RUN
@@ -568,6 +744,16 @@ if __name__ == '__main__':
 
         # Get the drafted results
         drafted_players = get_draft_results(run_api)
+
+        # Get the position for each drafted player
+        drafted_players = get_player_position(drafted_players)
+
+        # Calculate draft averages
+        positional_draft_costs = calculate_draft_average(drafted_players)
+
+        if only_print_draft_costs:
+            print('Only printing draft averages, because --cost flag set to True')
+            return
 
         # Get the teams in RUN
         team_names = get_team_names(run_api)
@@ -583,31 +769,81 @@ if __name__ == '__main__':
         transaction_data = parse_transaction_data()
 
         # Writing everything to a file, so I can do this faster without needing to ping the API constantly.
-        with open('dump_drafted.json', "w") as f:
+        with open('data_files/dump_drafted.json', "w") as f:
             f.write(json.dumps(drafted_players))
         if use_old_keeper_rules:
-            with open('dump_drafted_rosters.json', "w") as f:
+            with open('data_files/dump_drafted_rosters.json', "w") as f:
                 f.write(json.dumps(drafted_rostered_players))
-        with open('dump_rosters.json', "w") as f:
+        with open('data_files/dump_draft_cost.json', "w") as f:
+            f.write(json.dumps(positional_draft_costs))
+        with open('data_files/dump_rosters.json', "w") as f:
             f.write(json.dumps(rostered_players))
-        with open('dump_transaction.json', "w") as f:
+        with open('data_files/dump_transaction.json', "w") as f:
             f.write(json.dumps(transaction_data))
 
     else:
         # Make this quicker for now by loading from file.
-        with open('dump_drafted.json') as f:
+        with open('data_files/dump_drafted.json') as f:
             drafted_players = json.load(f)
         if use_old_keeper_rules:
-            with open('dump_drafted_rosters.json') as f:
+            with open('data_files/dump_drafted_rosters.json') as f:
                 drafted_rostered_players = json.load(f)
-        with open('dump_rosters.json') as f:
+        with open('data_files/dump_draft_cost.json') as f:
+            positional_draft_costs = json.load(f)
+        with open('data_files/dump_rosters.json') as f:
             rostered_players = json.load(f)
-        with open('dump_transaction.json') as f:
+        with open('data_files/dump_transaction.json') as f:
             transaction_data = json.load(f)
+
+    if only_print_draft_costs:
+        calculate_draft_average(drafted_players)
+        print('Only printing draft averages, because --cost flag set to True')
+        return
 
     if use_old_keeper_rules:
         # Get the list of keepers using the old keeper rules
         old_eligible_keepers(drafted_rostered_players, transaction_data)
     else:
-        # Get the lsit of keepers using the new keeper rules
-        new_eligible_keepers(drafted_players, rostered_players, transaction_data)
+        # Get the list of keepers using the new keeper rules
+        final_keeper_list = new_eligible_keepers(
+            drafted_players,
+            rostered_players,
+            transaction_data,
+            positional_draft_costs
+        )
+
+        # Print a more user friendly version of the final keeper list to a text file.
+        pretty_print_keepers(year, final_keeper_list)
+
+
+if __name__ == '__main__':
+    main_help_text = dedent(
+        ''' Generates a list of eligible keepers for The R.U.N. League.
+        
+        You must first authenticate with Yahoo using 'python auth.py'. You only need to authenticate once.
+        For first time use, the --file flag must be False. Ex: 'python generate_keepers.py --year 2018 --file False
+        
+        You must specify a year with '--year'
+        To get new data from the Yahoo API, use the optional argument '--file False'
+        To use the old keeper rules, use the optional argument '--rules old' 
+        To only print the average draft cost for each position, use the optional argument '--cost True' '''
+    )
+    parser = argparse.ArgumentParser(description=main_help_text, formatter_class=argparse.RawTextHelpFormatter)
+    parser.add_argument('--year', required=True, type=int, help='Year to generate keeper list')
+    parser.add_argument('--file',
+                        type=str,
+                        default='True',
+                        help='If False, get new data from the Yahoo API'
+                        )
+    parser.add_argument('--rules', type=str, default='new', help='If old, use old keeper rules.')
+    parser.add_argument('--cost', type=str, default='False', help='If True, only print the draft costs.')
+
+    args = parser.parse_args()
+    year = args.year
+    file = args.file
+    rules = args.rules
+    cost = args.cost
+
+    main_program(year, file, rules, cost)
+
+    sys.exit(0)
