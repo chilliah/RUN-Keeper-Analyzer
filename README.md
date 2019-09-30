@@ -37,6 +37,7 @@ Generates a list of eligible keepers for The R.U.N. League.
 
        You must first authenticate with Yahoo using 'python auth.py'. You only need to authenticate once.
        For first time use, the --file flag must be False. Ex: 'python generate_keepers.py --year 2018 --file False
+       Results are saved to final_keepers.txt.
 
        You must specify a year with '--year'
        To get new data from the Yahoo API, use the optional argument '--file False'
