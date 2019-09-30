@@ -286,6 +286,34 @@ def get_player_position(drafted_dict):
     return drafted_dict
 
 
+def get_trade_deadline(run_api):
+    """ Get the trade deadline from the Yahoo API
+
+    Args:
+        run_api (str): API for the RUN league
+
+    Returns:
+        trade_deadline_str (str): The trade deadline from Yahoo league settings as a string
+    """
+    sc = OAuth2(None, None, from_file='oauth2.json')
+    url = ('https://fantasysports.yahooapis.com/fantasy/v2/league/{}/settings'.format(run_api))
+    response = sc.session.get(url, params={'format': 'json'})
+    r = response.json()
+
+    with open('data_files/raw/league_settings.json', 'w') as f:
+        # r = r.replace("\'", "\"")
+        f.write(json.dumps(r))
+
+    print('{}'.format(pformat(r)))
+
+    with open('data_files/raw/league_settings.json') as f:
+        data = json.load(f)
+
+    trade_deadline_str = data['fantasy_content']['league'][1]['settings'][0]['trade_end_date']
+
+    return trade_deadline_str
+
+
 def calculate_draft_average(drafted_players):
     """ Calculate the draft average for each position. Round up.
 
@@ -606,7 +634,7 @@ def old_eligible_keepers(player_dict, transaction_dict):
     print('Keeper list: {}'.format(pformat(player_dict)))
 
 
-def new_eligible_keepers(drafted_dict, rostered_dict, transaction_dict, draft_cost_dict):
+def new_eligible_keepers(drafted_dict, rostered_dict, transaction_dict, draft_cost_dict, trade_deadline_str):
     """ Get a list of the eligible keepers using the MKGA rules purposed in 2019
 
     Loop through all the rostered players. Check if a transaction happened involving that player after the trade
@@ -618,16 +646,12 @@ def new_eligible_keepers(drafted_dict, rostered_dict, transaction_dict, draft_co
         rostered_dict (dict): Dictionary of rostered players as of week 15
         transaction_dict (dict): Dictionary of all the transactions
         draft_cost_dict (dict): Dictionary of the average draft cost for each position
+        trade_deadline_str (str): Trade dead from Yahoo API
 
     Returns:
         rostered_dict (dict): Dictionary of rostered players with keeper cost
     """
-    # Create UTC trade deadline, cause we are using UTC in our timestamps
-    est = pytz.timezone('US/Eastern')
-    utc = pytz.timezone('utc')
-    trade_deadline = datetime(2018, 10, 30, 16, 0, 0)
-    trade_deadline = est.localize(trade_deadline, is_dst=True)
-    trade_deadline = trade_deadline.astimezone(pytz.utc)
+    trade_deadline = datetime.strptime(trade_deadline_str, '%Y-%m-%d')
 
     for team in list(rostered_dict):
         for player in list(rostered_dict[team]):
@@ -640,11 +664,7 @@ def new_eligible_keepers(drafted_dict, rostered_dict, transaction_dict, draft_co
             # keeper rules, only players added before the trade deadline are eligible to be kept.
             for transaction in transaction_dict:
                 if player_key in transaction_dict[transaction]:
-
-                    # Convert timestamp to UTC. Need to do this because you can't compare a naive timestamp with an
-                    # aware timestamp.
                     timestamp = datetime.strptime(transaction_dict[transaction]['timestamp'], '%Y-%m-%d %H:%M:%S')
-                    timestamp = utc.localize(timestamp)
 
                     # If there was a transaction after the trade deadline, then the player is not eligible. Remove
                     # them from the keeper list
@@ -672,7 +692,7 @@ def new_eligible_keepers(drafted_dict, rostered_dict, transaction_dict, draft_co
     # Determine final keeper value
     for team in rostered_dict:
         for player in rostered_dict[team]:
-            # If the player was drafte, use the drafted price as the keeper base price.
+            # If the player was drafted, use the drafted price as the keeper base price.
             if rostered_dict[team][player]['drafted']:
                 base_price = int(rostered_dict[team][player]['base price'])
                 keeper_cost = (base_price + 5)*1.10
@@ -742,6 +762,9 @@ def main_program(year, file, rules, cost):
         # Get the API Key for the specified year of RUN
         run_api = get_api_values(year)
 
+        # Get the trade_deadline
+        trade_deadline = get_trade_deadline(run_api)
+
         # Get the drafted results
         drafted_players = get_draft_results(run_api)
 
@@ -772,14 +795,16 @@ def main_program(year, file, rules, cost):
         with open('data_files/dump_drafted.json', "w") as f:
             f.write(json.dumps(drafted_players))
         if use_old_keeper_rules:
-            with open('data_files/dump_drafted_rosters.json', "w") as f:
+            with open('data_files/dump_drafted_rosters.json', 'w') as f:
                 f.write(json.dumps(drafted_rostered_players))
-        with open('data_files/dump_draft_cost.json', "w") as f:
+        with open('data_files/dump_draft_cost.json', 'w') as f:
             f.write(json.dumps(positional_draft_costs))
-        with open('data_files/dump_rosters.json', "w") as f:
+        with open('data_files/dump_rosters.json', 'w') as f:
             f.write(json.dumps(rostered_players))
-        with open('data_files/dump_transaction.json', "w") as f:
+        with open('data_files/dump_transaction.json', 'w') as f:
             f.write(json.dumps(transaction_data))
+        with open('data_files/trade_deadline.json', 'w') as f:
+            f.write(trade_deadline)
 
     else:
         # Make this quicker for now by loading from file.
@@ -794,6 +819,8 @@ def main_program(year, file, rules, cost):
             rostered_players = json.load(f)
         with open('data_files/dump_transaction.json') as f:
             transaction_data = json.load(f)
+        with open('data_files/trade_deadline.json') as f:
+            trade_deadline = f.read()
 
     if only_print_draft_costs:
         calculate_draft_average(drafted_players)
@@ -809,7 +836,8 @@ def main_program(year, file, rules, cost):
             drafted_players,
             rostered_players,
             transaction_data,
-            positional_draft_costs
+            positional_draft_costs,
+            trade_deadline
         )
 
         # Print a more user friendly version of the final keeper list to a text file.
