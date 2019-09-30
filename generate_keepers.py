@@ -1,13 +1,12 @@
 import argparse
 import json
 import math
-import time
 import sys
+import time
 from datetime import datetime
 from pprint import pformat
 from textwrap import dedent
 
-import pytz
 from yahoo_fantasy_api import game
 from yahoo_oauth import OAuth2
 
