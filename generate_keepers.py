@@ -19,7 +19,6 @@ def get_api_values(year):
 
     Returns:
         league_api (str): API string for the RUN league
-
     """
     sc = OAuth2(None, None, from_file='oauth2.json')
     gm = game.Game(sc, 'nfl')
@@ -208,7 +207,6 @@ def get_player_position(drafted_dict):
 
     Returns:
         drafted_dict (dict): Dictionary of draft results with player position added
-
     """
     sc = OAuth2(None, None, from_file='oauth2.json')
 
@@ -322,7 +320,6 @@ def calculate_draft_average(drafted_players):
     Returns:
         draft_averages (dict): Dictionary of the average draft cost for each position
     """
-
     def average_ceil(position_list):
         """ Calculate the average of the items in position_list. Round up.
 
@@ -432,7 +429,6 @@ def parse_transaction_data():
 
     Returns:
         transaction_data (dict): Dictionary of transaction data
-
     """
     sc = OAuth2(None, None, from_file='oauth2.json')
     url = 'https://fantasysports.yahooapis.com/fantasy/v2/league/380.l.841493/transactions'
@@ -541,7 +537,6 @@ def old_eligible_keepers(player_dict, transaction_dict):
     Returns:
         final_keeper_dict (dict): The final dictionary of players that are eligible to be kept.
     """
-
     dropped_players = dict()
     free_agent_players = dict()
 
