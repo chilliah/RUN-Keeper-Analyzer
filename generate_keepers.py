@@ -408,7 +408,7 @@ def determine_drafted_players(drafted_dict, rostered_dict):
     return rostered_dict
 
 
-def parse_transaction_data():
+def parse_transaction_data(run_api):
     """ Go through all the transactions and get the relevant data.
 
     transaction_data dictionary structure:
@@ -431,7 +431,7 @@ def parse_transaction_data():
         transaction_data (dict): Dictionary of transaction data
     """
     sc = OAuth2(None, None, from_file='oauth2.json')
-    url = 'https://fantasysports.yahooapis.com/fantasy/v2/league/380.l.841493/transactions'
+    url = ('https://fantasysports.yahooapis.com/fantasy/v2/league/{}/transactions'.format(run_api))
     response = sc.session.get(url, params={'format': 'json'})
     r = response.json()
 
@@ -698,7 +698,12 @@ def new_eligible_keepers(drafted_dict, rostered_dict, transaction_dict, draft_co
             else:
                 position = rostered_dict[team][player]['position']
                 draft_average_cost = draft_cost_dict[position]
-                keeper_cost = draft_average_cost
+                base_price = draft_average_cost
+
+                # We will now be adding interest to the keeper cost for UDFAs
+                keeper_cost = (base_price + 5) * 1.10
+                keeper_cost = math.ceil(keeper_cost)
+
                 rostered_dict[team][player]["keeper price"] = keeper_cost
 
     print('{}'.format(pformat(rostered_dict)))
@@ -783,7 +788,7 @@ def main_program(year, file, rules, cost):
             drafted_rostered_players = determine_drafted_players(drafted_players, rostered_players)
 
         # Get all the transaction information for RUN
-        transaction_data = parse_transaction_data()
+        transaction_data = parse_transaction_data(run_api)
 
         # Writing everything to a file, so I can do this faster without needing to ping the API constantly.
         with open('data_files/dump_drafted.json', "w") as f:
@@ -824,6 +829,7 @@ def main_program(year, file, rules, cost):
     if use_old_keeper_rules:
         # Get the list of keepers using the old keeper rules
         old_eligible_keepers(drafted_rostered_players, transaction_data)
+        # pretty_print_keepers(year, final_keeper_list)
     else:
         # Get the list of keepers using the new keeper rules
         final_keeper_list = new_eligible_keepers(
